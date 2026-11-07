@@ -203,40 +203,107 @@ alter publication supabase_realtime add table message_reactions;
 ```
 
 ### Fase 1: Entorno, Proyectos y Seguridad
+* **Agentes & Skills:** `Backend-Cloud-Agent` · `backend-security-coder`, `postgresql`, `firebase-auth-basics`.
 * Crear proyecto en **Supabase** y ejecutar el DDL de base de datos.
 * Crear proyecto en **Firebase**, habilitar Auth (Email y Google), Storage y Cloud Messaging.
 * Configurar variables en `.env` y documentar `.env.example`.
 * Asegurar que `.gitignore` excluya `.env`, `google-services.json`, keystores y claves privadas.
 
 ### Fase 2: Autenticación y Perfil de Usuario
+* **Agentes & Skills:** `Frontend-Flutter-Agent`, `Backend-Cloud-Agent` · `flutter-apply-architecture-best-practices`, `firebase-auth-basics`, `frontend-security-coder`, `flutter-implement-json-serialization`.
 * Diseñar pantallas de Login, Registro y Recuperación con estética oscura.
 * Vincular registro con la inserción en la tabla `profiles` de Supabase.
 * Crear la vista de edición de perfil (subida de foto de avatar a Firebase Storage).
 
 ### Fase 3: Core de Chat estilo Discord
+* **Agentes & Skills:** `Frontend-Flutter-Agent`, `Backend-Cloud-Agent` · `flutter-apply-architecture-best-practices`, `flutter-add-widget-preview`, `postgresql`, `full-stack-orchestration-full-stack-feature`.
 * Crear la estructura responsiva: Drawer lateral en móvil y columnas fijas en Web.
 * Crear vistas de lista de servidores/canales e historial de chat.
 * Implementar suscripción en tiempo real a la tabla `messages` vía Supabase Realtime.
 * Implementar el indicador de "Escribiendo..." y estados de presencia (Online/Offline).
 
 ### Fase 4: Multimedia, Geolocalización y Notificaciones
+* **Agentes & Skills:** `Frontend-Flutter-Agent`, `Backend-Cloud-Agent` · `backend-development-feature-development`, `frontend-security-coder`, `dart-run-static-analysis`.
 * Integración del botón `+` para subir fotos a Firebase Storage con barra de progreso.
 * Integración de `geolocator` para enviar latitud y longitud con tarjeta Embed de mapa.
 * Integración de `firebase_messaging` para notificaciones push en segundo plano en Android.
 * Agregar selector de reacciones emoji a cada mensaje.
 
 ### Fase 5: Compilación y Despliegue
+* **Agentes & Skills:** `QA-Test-Agent`, `Backend-Cloud-Agent` · `dart-run-static-analysis`, `dart-fix-runtime-errors`, `debugger`.
 * Compilación Web: `flutter build web --release` y despliegue en Firebase Hosting.
 * Compilación APK: `flutter build apk --release` y pruebas en teléfonos físicos.
 * Crear un *Release* en GitHub adjuntando el archivo `app-release.apk`.
 
 ### Fase 6: Documentación y Entrega
+* **Agentes & Skills:** `Security-A11y-Agent`, `QA-Test-Agent` · `flutter_a11y_agent`, `wcag-audit-patterns`, `c4-architecture-c4-architecture`.
 * Redacción del `README.md` final con capturas de pantalla, diagrama de arquitectura y guía de uso.
 * Grabación del video demostrativo interactuando entre dos dispositivos y publicación en redes.
 
 ---
 
-## 8. Distribución de Roles para el Trabajo en Parejas
+## 8. Asignación de Agentes y Skills Especializadas
+
+Para maximizar la calidad de código, robustez y mantenibilidad, el desarrollo se organiza mediante **Agentes Especializados** que aplican **Skills Instaladas** específicas de Frontend, Backend, Seguridad y QA:
+
+### Matriz de Skills Instaladas
+
+| Categoría | Skill Especializada | Propósito y Aplicación en el Proyecto |
+| :--- | :--- | :--- |
+| **Frontend** | `flutter-apply-architecture-best-practices` | Arquitectura por capas (UI, Logic, Data) para modularizar vistas, servicios y proveedores. |
+| **Frontend** | `flutter-add-widget-preview` | Previsualización interactiva de componentes del chat (burbujas, docks, selector de canales). |
+| **Frontend** | `flutter-implement-json-serialization` | Mapeo tipado bidireccional (`fromJson`/`toJson`) entre respuestas JSON y modelos de datos. |
+| **Frontend** | `frontend-security-coder` | Validación y sanitización de inputs en cliente, prevención de inyecciones y escape de caracteres. |
+| **Frontend & A11y**| `wcag-audit-patterns` / `flutter_a11y_agent` | Auditoría de contraste, soporte de lectores de pantalla y accesibilidad táctil en móvil. |
+| **Backend & Cloud**| `backend-development-feature-development` | Orquestación end-to-end de servicios cloud (`AuthService`, `SupabaseService`, `StorageService`). |
+| **Backend & Cloud**| `backend-security-coder` | Reglas de seguridad RLS en Postgres, validación de tokens JWT y control de acceso a Storage. |
+| **Backend & Cloud**| `postgresql` / `database-migrations-sql-migrations` | Gestión DDL de esquemas, optimización de índices para Realtime y claves foráneas en cascada. |
+| **Backend & Cloud**| `firebase-auth-basics` | Implementación segura de flujos de registro, sesiones persistentes y gestión de usuarios. |
+| **Backend & Cloud**| `api-design-principles` | Estandarización de contratos de datos para eventos en tiempo real y transacciones relacionales. |
+| **Testing & QA** | `tdd-workflows-tdd-cycle` / `dart-add-unit-test` | Ciclo TDD y generación sistemática de pruebas unitarias sobre modelos y servicios. |
+| **Testing & QA** | `dart-run-static-analysis` / `dart-fix-runtime-errors` | Ejecución de `flutter analyze`, corrección de lints y diagnóstico automático en tiempo de ejecución. |
+| **Diagnóstico** | `debugger` / `error-detective` | Localización rápida de excepciones asíncronas y resolución de bugs en Web y Android. |
+| **Orquestación** | `full-stack-orchestration-full-stack-feature` | Sincronización continua entre la interfaz Flutter y los eventos de Supabase / Firebase. |
+
+### Configuración de Agentes para las Tareas
+
+```mermaid
+flowchart TD
+    Coord["Coordinador Principal"]
+    
+    A_Front["Agente Frontend & UI"]
+    A_Back["Agente Backend & Cloud"]
+    A_QA["Agente QA & Testing"]
+    A_Sec["Agente Seguridad & A11y"]
+    
+    Coord --> A_Front
+    Coord --> A_Back
+    Coord --> A_QA
+    Coord --> A_Sec
+    
+    A_Front -.->|Consume| A_Back
+    A_QA -.->|Valida| A_Front
+    A_QA -.->|Valida| A_Back
+    A_Sec -.->|Audita RLS & Manifest| A_Back
+    A_Sec -.->|Audita Contraste & A11y| A_Front
+```
+
+1. **Agente Frontend (`Frontend-Flutter-Agent`):**
+   - **Responsabilidad:** Construcción de vistas (`LoginScreen`, `RegisterScreen`, `HomeScreen`), layout adaptativo (Drawer en móvil, 3 columnas fijas en Web), componentes del Dark Theme Discord y renderizado multimedia.
+   - **Skills:** `flutter-apply-architecture-best-practices`, `flutter-add-widget-preview`, `frontend-security-coder`.
+2. **Agente Backend & Cloud (`Backend-Cloud-Agent`):**
+   - **Responsabilidad:** Conexión con Supabase (SQL, WebSockets, RLS) y Firebase (Auth, Storage buckets, FCM), persistencia y sincronización de presencia.
+   - **Skills:** `backend-development-feature-development`, `backend-security-coder`, `postgresql`, `firebase-auth-basics`.
+3. **Agente QA & Testing (`QA-Test-Agent`):**
+   - **Responsabilidad:** Cobertura con pruebas unitarias (`test/`), análisis estático permanente con `dart analyze` y resolución de issues.
+   - **Skills:** `dart-add-unit-test`, `dart-run-static-analysis`, `dart-fix-runtime-errors`, `debugger`.
+4. **Agente de Seguridad & Accesibilidad (`Security-A11y-Agent`):**
+   - **Responsabilidad:** Verificación de políticas RLS en Supabase, blindaje del `AndroidManifest.xml` y cumplimiento de WCAG 2.2.
+   - **Skills:** `backend-security-coder`, `flutter_a11y_agent`, `wcag-audit-patterns`.
+
+---
+
+## 9. Distribución de Roles para el Trabajo en Parejas
 
 | Módulo de Trabajo | Integrante 1 (Backend & Cloud Architect) | Integrante 2 (Frontend & Mobile Specialist) |
 | :--- | :--- | :--- |
@@ -247,7 +314,7 @@ alter publication supabase_realtime add table message_reactions;
 
 ---
 
-## 9. Lista de Verificación (Checklist) para la Entrega
+## 10. Lista de Verificación (Checklist) para la Entrega
 
 - [ ] Las 12+ funcionalidades operan correctamente en pruebas simultáneas.
 - [ ] La interfaz refleja fielmente la estética oscura de Discord.
