@@ -1,0 +1,30 @@
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+*.iml
+.idea/
+
+# Android
+android/app/debug/
+android/app/profile/
+android/app/release/
+android/key.properties
+android/local.properties
+android/.gradle/
+**/android/app/google-services.json
+
+# Environment variables & secrets
+.env
+.env.*
+!.env.example
+secrets/
+*.keystore
+*.jks
+
+# Logs and OS files
+*.log
+.DS_Store
+Thumbs.db
