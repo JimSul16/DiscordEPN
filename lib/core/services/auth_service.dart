@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import '../errors/app_exception.dart';
 import '../../models/user_profile.dart';
 import 'supabase_service.dart';
 
@@ -22,6 +23,14 @@ class AuthService {
     if (user != null) {
       await user.updateDisplayName(displayName);
 
+      // Sincronizar token en Realtime con force refresh para capturar custom claims
+      try {
+        final token = await user.getIdToken(true);
+        if (token != null) {
+          await SupabaseService.client.realtime.setAuth(token);
+        }
+      } catch (_) {}
+
       // Sincronizar perfil inicial en Supabase
       final profile = UserProfile(
         id: user.uid,
@@ -30,7 +39,15 @@ class AuthService {
         isOnline: true,
         lastSeen: DateTime.now(),
       );
-      await SupabaseService.upsertProfile(profile);
+
+      try {
+        await SupabaseService.upsertProfile(profile);
+      } catch (e) {
+        throw AppException(
+          'Usuario creado en Firebase, pero ocurrió un problema al inicializar el perfil en la base de datos: $e',
+          e,
+        );
+      }
     }
 
     return credential;
@@ -47,7 +64,31 @@ class AuthService {
 
     final user = credential.user;
     if (user != null) {
-      await SupabaseService.updatePresence(user.uid, true);
+      try {
+        final token = await user.getIdToken();
+        if (token != null) {
+          await SupabaseService.client.realtime.setAuth(token);
+        }
+      } catch (_) {}
+
+      try {
+        await SupabaseService.updatePresence(user.uid, true);
+      } catch (_) {}
+
+      // Fallback autorreparador: si por alguna razón no existía perfil, crearlo
+      try {
+        final existing = await SupabaseService.getProfile(user.uid);
+        if (existing == null) {
+          final fallbackProfile = UserProfile(
+            id: user.uid,
+            displayName: user.displayName ?? (user.email?.split('@').first ?? 'Usuario'),
+            bio: '¡Hola! Estoy usando Discord EPN.',
+            isOnline: true,
+            lastSeen: DateTime.now(),
+          );
+          await SupabaseService.upsertProfile(fallbackProfile);
+        }
+      } catch (_) {}
     }
 
     return credential;
@@ -56,8 +97,15 @@ class AuthService {
   static Future<void> signOut() async {
     final user = currentUser;
     if (user != null) {
-      await SupabaseService.updatePresence(user.uid, false);
+      try {
+        await SupabaseService.updatePresence(user.uid, false);
+      } catch (_) {}
     }
+
+    try {
+      await SupabaseService.client.realtime.setAuth(null);
+    } catch (_) {}
+
     await _auth.signOut();
   }
 }

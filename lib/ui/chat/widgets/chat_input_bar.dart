@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import '../../../core/constants/discord_colors.dart';
 import '../../../core/providers/chat_provider.dart';
+import '../../../core/services/storage_service.dart';
 import 'voice_record_dialog.dart';
 
 class ChatInputBar extends StatefulWidget {
@@ -18,27 +20,71 @@ class _ChatInputBarState extends State<ChatInputBar> {
   final ImagePicker _picker = ImagePicker();
   bool _isSending = false;
 
+  Timer? _typingStop;
+  bool _typingSent = false;
+
   @override
   void dispose() {
+    _typingStop?.cancel();
     _controller.dispose();
     super.dispose();
+  }
+
+  void _onTextChanged(String value) {
+    final provider = context.read<ChatProvider>();
+    if (value.trim().isEmpty) {
+      _typingStop?.cancel();
+      if (_typingSent) {
+        _typingSent = false;
+        provider.notifyTyping(false);
+      }
+      return;
+    }
+
+    if (!_typingSent) {
+      _typingSent = true;
+      provider.notifyTyping(true);
+    }
+
+    _typingStop?.cancel();
+    _typingStop = Timer(const Duration(seconds: 2), () {
+      _typingSent = false;
+      provider.notifyTyping(false);
+    });
   }
 
   Future<void> _handleSendText() async {
     final text = _controller.text.trim();
     if (text.isEmpty || _isSending) return;
 
-    _controller.clear();
+    if (text.length > 4000) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: DiscordColors.red,
+          content: Text('El mensaje no puede superar los 4000 caracteres.'),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isSending = true);
+    _typingStop?.cancel();
+    _typingSent = false;
     context.read<ChatProvider>().notifyTyping(false);
 
     try {
       await context.read<ChatProvider>().sendTextMessage(text);
+      if (!mounted) return;
+      // Limpiar solo cuando el envío fue exitoso (BUG-22 resuelto)
+      _controller.clear();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(backgroundColor: DiscordColors.red, content: Text('Error al enviar: $e')),
         );
       }
+    } finally {
+      if (mounted) setState(() => _isSending = false);
     }
   }
 
@@ -52,14 +98,19 @@ class _ChatInputBarState extends State<ChatInputBar> {
     setState(() => _isSending = true);
     try {
       final bytes = await image.readAsBytes();
+      if (bytes.lengthInBytes > StorageService.maxImageBytes) {
+        throw Exception('La imagen supera el límite permitido de 10 MB.');
+      }
+
       final name = image.name;
       final ext = name.split('.').last.toLowerCase();
+      final mime = StorageService.imageMime[ext] ?? 'image/jpeg';
 
       if (mounted) {
         await context.read<ChatProvider>().sendImageMessage(
           bytes: bytes,
           fileName: name,
-          mimeType: 'image/${ext.isEmpty ? 'jpeg' : ext}',
+          mimeType: mime,
         );
       }
     } catch (e) {
@@ -119,10 +170,14 @@ class _ChatInputBarState extends State<ChatInputBar> {
       context: context,
       barrierDismissible: false,
       builder: (_) => VoiceRecordDialog(
-        onSendAudio: (audioBytes) async {
+        onSendAudio: (audioBytes, {String extension = 'm4a', String mimeType = 'audio/mp4'}) async {
           setState(() => _isSending = true);
           try {
-            await context.read<ChatProvider>().sendVoiceNote(audioBytes: audioBytes);
+            await context.read<ChatProvider>().sendVoiceNote(
+              audioBytes: audioBytes,
+              extension: extension,
+              mimeType: mimeType,
+            );
           } catch (e) {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -219,9 +274,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
                     fontSize: 14,
                   ),
                 ),
-                onChanged: (val) {
-                  context.read<ChatProvider>().notifyTyping(val.isNotEmpty);
-                },
+                onChanged: _onTextChanged,
                 onSubmitted: (_) => _handleSendText(),
               ),
             ),

@@ -19,11 +19,45 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final ScrollController _scrollController = ScrollController();
   bool _showMembersOnDesktop = true;
+  bool _wasNearBottom = true;
+  int _lastMessageCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+  }
 
   @override
   void dispose() {
+    _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    if (_scrollController.position.pixels < 150) {
+      final chatProvider = context.read<ChatProvider>();
+      if (!chatProvider.loadingMore && chatProvider.hasMore) {
+        final before = _scrollController.position.maxScrollExtent;
+        chatProvider.loadOlderMessages().then((_) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted || !_scrollController.hasClients) return;
+            final after = _scrollController.position.maxScrollExtent;
+            _scrollController.jumpTo(
+              _scrollController.offset + (after - before),
+            );
+          });
+        });
+      }
+    }
+  }
+
+  bool get _isNearBottom {
+    if (!_scrollController.hasClients) return true;
+    final p = _scrollController.position;
+    return p.maxScrollExtent - p.pixels < 120;
   }
 
   void _showCreateChannelDialog() {
@@ -40,12 +74,24 @@ class _HomeScreenState extends State<HomeScreen> {
     final messages = chatProvider.messages;
     final typingText = chatProvider.typingStatusText;
 
-    // Auto-scroll al fondo cuando llegan mensajes nuevos
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
-      }
-    });
+    // Auto-scroll inteligente: solo si el usuario estaba al final o en la carga inicial
+    _wasNearBottom = _isNearBottom;
+    final grew = messages.length > _lastMessageCount;
+    final isInitialLoad = _lastMessageCount == 0 && messages.isNotEmpty;
+    _lastMessageCount = messages.length;
+
+    if (grew || isInitialLoad) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_scrollController.hasClients) return;
+        if (_wasNearBottom || isInitialLoad) {
+          _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+          );
+        }
+      });
+    }
 
     final screenWidth = MediaQuery.of(context).size.width;
     final isMobile = screenWidth < 768;
@@ -82,12 +128,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              Text(
-                activeRoom?.name ?? 'general',
-                style: const TextStyle(
-                  color: DiscordColors.textPrimary,
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
+              Expanded(
+                child: Text(
+                  activeRoom?.name ?? 'general',
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: DiscordColors.textPrimary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
             ],
@@ -104,20 +153,9 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         body: Column(
           children: [
+            if (chatProvider.error != null) _buildErrorBanner(chatProvider),
             Expanded(
-              child: chatProvider.isLoading
-                  ? const Center(
-                      child: CircularProgressIndicator(color: DiscordColors.blurple),
-                    )
-                  : messages.isEmpty
-                      ? _buildEmptyChannelView(activeRoom?.name ?? 'general')
-                      : ListView.builder(
-                          controller: _scrollController,
-                          itemCount: messages.length,
-                          itemBuilder: (context, index) {
-                            return MessageBubble(message: messages[index]);
-                          },
-                        ),
+              child: _buildChatBody(chatProvider),
             ),
             if (typingText != null) _buildTypingBanner(typingText),
             const ChatInputBar(),
@@ -126,7 +164,7 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
-    // Layout de 3 o 4 columnas para Escritorio / Web
+    // Layout para Escritorio / Web
     return Scaffold(
       backgroundColor: DiscordColors.chatBackground,
       body: Row(
@@ -189,21 +227,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                 ),
+                if (chatProvider.error != null) _buildErrorBanner(chatProvider),
                 // Feed de mensajes
                 Expanded(
-                  child: chatProvider.isLoading
-                      ? const Center(
-                          child: CircularProgressIndicator(color: DiscordColors.blurple),
-                        )
-                      : messages.isEmpty
-                          ? _buildEmptyChannelView(activeRoom?.name ?? 'general')
-                          : ListView.builder(
-                              controller: _scrollController,
-                              itemCount: messages.length,
-                              itemBuilder: (context, index) {
-                                return MessageBubble(message: messages[index]);
-                              },
-                            ),
+                  child: _buildChatBody(chatProvider),
                 ),
                 if (typingText != null) _buildTypingBanner(typingText),
                 const ChatInputBar(),
@@ -212,6 +239,66 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           // 4. Barra lateral de miembros (colapsable en Desktop/Web)
           if (_showMembersOnDesktop) const MembersSidebar(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChatBody(ChatProvider chatProvider) {
+    if (chatProvider.isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(color: DiscordColors.blurple),
+      );
+    }
+
+    final messages = chatProvider.messages;
+    if (messages.isEmpty) {
+      return _buildEmptyChannelView(chatProvider.activeRoom?.name ?? 'general');
+    }
+
+    return Column(
+      children: [
+        if (chatProvider.loadingMore)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 8.0),
+            child: SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2, color: DiscordColors.blurple),
+            ),
+          ),
+        Expanded(
+          child: ListView.builder(
+            controller: _scrollController,
+            itemCount: messages.length,
+            itemBuilder: (context, index) {
+              return MessageBubble(message: messages[index]);
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildErrorBanner(ChatProvider chatProvider) {
+    return Container(
+      width: double.infinity,
+      color: DiscordColors.red.withAlpha(200),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              chatProvider.error ?? 'Error',
+              style: const TextStyle(color: Colors.white, fontSize: 13),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, color: Colors.white, size: 18),
+            onPressed: () => chatProvider.clearError(),
+          ),
         ],
       ),
     );

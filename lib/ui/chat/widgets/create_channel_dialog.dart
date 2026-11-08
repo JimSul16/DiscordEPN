@@ -21,24 +21,44 @@ class _CreateChannelDialogState extends State<CreateChannelDialog> {
   }
 
   Future<void> _handleCreate() async {
-    final name = _controller.text.trim();
-    if (name.isEmpty) return;
+    final raw = _controller.text.trim();
+    if (raw.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: DiscordColors.red,
+          content: Text('El nombre del canal no puede estar vacío.'),
+        ),
+      );
+      return;
+    }
+
+    final clean = raw.replaceAll(' ', '-').toLowerCase();
+    if (!RegExp(r'^[a-z0-9][a-z0-9-]{1,31}$').hasMatch(clean)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: DiscordColors.red,
+          content: Text('Usa de 2 a 32 caracteres (solo minúsculas, números y guiones).'),
+        ),
+      );
+      return;
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
 
     setState(() => _isLoading = true);
     try {
-      await context.read<ChatProvider>().createRoom(name);
+      await context.read<ChatProvider>().createRoom(clean);
       if (mounted) {
-        Navigator.of(context).pop();
+        navigator.pop();
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: DiscordColors.red,
-            content: Text('Error al crear canal: $e'),
-          ),
-        );
-      }
+      messenger.showSnackBar(
+        SnackBar(
+          backgroundColor: DiscordColors.red,
+          content: Text('$e'),
+        ),
+      );
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

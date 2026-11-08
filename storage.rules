@@ -1,0 +1,48 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isImage() {
+      return request.resource.contentType.matches('image/.*');
+    }
+
+    function isAudio() {
+      return request.resource.contentType.matches('audio/.*');
+    }
+
+    // Avatares: solo el dueño escribe; lectura pública
+    match /avatars/{userId}.{ext} {
+      allow read: if true;
+      allow write: if signedIn()
+        && request.auth.uid == userId
+        && request.resource.size < 5 * 1024 * 1024
+        && isImage();
+    }
+
+    // Imágenes del chat
+    match /chat_media/{roomId}/{fileName} {
+      allow read: if signedIn();
+      allow write: if signedIn()
+        && request.resource.size < 10 * 1024 * 1024
+        && isImage()
+        && fileName.matches('.*\\.(jpg|jpeg|png|webp|gif)$');
+    }
+
+    // Notas de voz
+    match /voice_notes/{roomId}/{fileName} {
+      allow read: if signedIn();
+      allow write: if signedIn()
+        && request.resource.size < 10 * 1024 * 1024
+        && isAudio()
+        && fileName.matches('.*\\.(m4a|aac|wav|webm|ogg|mp3)$');
+    }
+
+    // Bloquear todo lo demás
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

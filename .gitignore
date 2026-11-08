@@ -23,6 +23,9 @@ android/.gradle/
 secrets/
 *.keystore
 *.jks
+config/*
+!config/dev.example.json
+*.dart_define.json
 
 # Logs and OS files
 *.log

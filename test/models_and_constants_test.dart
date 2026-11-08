@@ -1,5 +1,9 @@
+import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:discord_epn/core/constants/discord_colors.dart';
+import 'package:discord_epn/core/config/app_config.dart';
+import 'package:discord_epn/core/errors/app_exception.dart';
+import 'package:discord_epn/core/services/storage_service.dart';
 import 'package:discord_epn/models/user_profile.dart';
 import 'package:discord_epn/models/room_model.dart';
 import 'package:discord_epn/models/message_model.dart';
@@ -123,6 +127,56 @@ void main() {
       expect(parsed.id, equals('msg-999'));
       expect(parsed.type, equals('location'));
       expect(parsed.latitude, equals(-0.2105));
+    });
+
+    test('MessageModel tolera profiles y reactions nulos', () {
+      final json = {
+        'id': 'msg-001',
+        'room_id': 'room-01',
+        'sender_id': 'usr-01',
+        'content': 'Mensaje simple',
+        'type': 'text',
+        'created_at': DateTime.now().toIso8601String(),
+        'profiles': null,
+        'message_reactions': null,
+      };
+
+      final parsed = MessageModel.fromJson(json);
+      expect(parsed.id, equals('msg-001'));
+      expect(parsed.sender, isNull);
+      expect(parsed.reactions, isEmpty);
+    });
+  });
+
+  group('AppException & AppConfig', () {
+    test('AppException preserva mensaje y causa', () {
+      const cause = 'Network Timeout';
+      const ex = AppException('Error al conectar', cause);
+      expect(ex.toString(), equals('Error al conectar'));
+      expect(ex.cause, equals(cause));
+    });
+
+    test('AppConfig.hasAuthenticatedRole detecta correctamente el claim role', () {
+      final header = base64Url.encode(utf8.encode('{"alg":"none"}'));
+      final authPayload = base64Url.encode(utf8.encode('{"sub":"firebase_123","role":"authenticated"}'));
+      final anonPayload = base64Url.encode(utf8.encode('{"sub":"firebase_123","role":"anon"}'));
+
+      final validJwt = '$header.$authPayload.signature';
+      final anonJwt = '$header.$anonPayload.signature';
+      const malformedJwt = 'invalid.jwt';
+
+      expect(AppConfig.hasAuthenticatedRole(validJwt), isTrue);
+      expect(AppConfig.hasAuthenticatedRole(anonJwt), isFalse);
+      expect(AppConfig.hasAuthenticatedRole(malformedJwt), isFalse);
+    });
+  });
+
+  group('StorageService Hardening', () {
+    test('Saneamiento de nombres de archivo y tipos MIME permitidos', () {
+      expect(StorageService.imageMime['png'], equals('image/png'));
+      expect(StorageService.imageMime['jpg'], equals('image/jpeg'));
+      expect(StorageService.audioMime['m4a'], equals('audio/mp4'));
+      expect(StorageService.audioMime['wav'], equals('audio/wav'));
     });
   });
 }

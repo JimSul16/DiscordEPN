@@ -7,6 +7,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:provider/provider.dart';
 
 import 'firebase_options.dart';
+import 'core/config/app_config.dart';
 import 'core/constants/discord_colors.dart';
 import 'core/services/auth_service.dart';
 import 'core/services/supabase_service.dart';
@@ -17,44 +18,106 @@ import 'ui/home/home_screen.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 1. Cargar variables de entorno (.env)
-  await dotenv.load(fileName: '.env');
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+  };
 
-  // 2. Inicializar Firebase
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
+  ErrorWidget.builder = (details) => _StartupErrorScreen(
+    message: 'Ocurrió un error inesperado en la interfaz:\n${details.exception}',
   );
 
-  // 3. Inicializar Notificaciones Push (FCM)
   try {
-    final messaging = FirebaseMessaging.instance;
-    await messaging.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
+    // 1. Cargar variables de entorno si están presentes localmente
+    try {
+      await dotenv.load(fileName: '.env');
+    } catch (_) {}
+
+    // Validar configuración de backend (URL y Keys)
+    AppConfig.validate();
+
+    // 2. Inicializar Firebase
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
     );
-    // ignore: deprecated_member_use
-    final fcmToken = await messaging.getToken();
-    if (kDebugMode) {
-      print('FCM Token registrado: $fcmToken');
-    }
+
+    // 3. Inicializar Notificaciones Push (FCM)
+    try {
+      final messaging = FirebaseMessaging.instance;
+      await messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      // ignore: deprecated_member_use
+      final fcmToken = await messaging.getToken();
+      if (fcmToken != null) {
+        final currentUid = FirebaseAuth.instance.currentUser?.uid;
+        if (currentUid != null) {
+          final platform = kIsWeb
+              ? 'web'
+              : (defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android');
+          await SupabaseService.upsertPushToken(
+            userId: currentUid,
+            token: fcmToken,
+            platform: platform,
+          );
+        }
+      }
+    } catch (_) {}
+
+    // 4. Inicializar Supabase con Auth bridge
+    await SupabaseService.initialize();
+
+    runApp(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => ChatProvider()),
+        ],
+        child: const DiscordEpnApp(),
+      ),
+    );
   } catch (e) {
-    if (kDebugMode) {
-      print('Aviso FCM: $e');
-    }
+    runApp(_StartupErrorScreen(message: 'No se pudo iniciar Discord EPN:\n$e'));
   }
+}
 
-  // 4. Inicializar Supabase (PostgreSQL + Realtime)
-  await SupabaseService.initialize();
+class _StartupErrorScreen extends StatelessWidget {
+  final String message;
+  const _StartupErrorScreen({required this.message});
 
-  runApp(
-    MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => ChatProvider()),
-      ],
-      child: const DiscordEpnApp(),
-    ),
-  );
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Discord EPN - Error',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData.dark(),
+      home: Scaffold(
+        backgroundColor: DiscordColors.chatBackground,
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.error_outline, size: 64, color: DiscordColors.red),
+                const SizedBox(height: 16),
+                const Text(
+                  'Error de Configuración',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  message,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white70, fontSize: 14),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class DiscordEpnApp extends StatelessWidget {
@@ -83,8 +146,15 @@ class DiscordEpnApp extends StatelessWidget {
   }
 }
 
-class AuthGate extends StatelessWidget {
+class AuthGate extends StatefulWidget {
   const AuthGate({super.key});
+
+  @override
+  State<AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<AuthGate> {
+  String? _initializedFor;
 
   @override
   Widget build(BuildContext context) {
@@ -102,15 +172,16 @@ class AuthGate extends StatelessWidget {
 
         final user = snapshot.data;
         if (user == null) {
+          _initializedFor = null;
           return const LoginScreen();
         }
 
-        // Inicializar estado de usuario en ChatProvider
-        final chatProvider = context.read<ChatProvider>();
-        if (chatProvider.currentUserProfile == null ||
-            chatProvider.currentUserProfile?.id != user.uid) {
+        if (_initializedFor != user.uid) {
+          _initializedFor = user.uid;
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            chatProvider.initializeUser(user.uid);
+            if (mounted) {
+              context.read<ChatProvider>().initializeUser(user.uid);
+            }
           });
         }
 

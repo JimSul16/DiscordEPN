@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -259,7 +260,10 @@ class MessageBubble extends StatelessWidget {
         );
 
       case 'audio':
-        return _VoicePlayerWidget(audioUrl: message.mediaUrl);
+        return _VoicePlayerWidget(
+          messageId: message.id,
+          audioUrl: message.mediaUrl,
+        );
 
       case 'text':
       default:
@@ -307,9 +311,13 @@ class MessageBubble extends StatelessWidget {
 }
 
 class _VoicePlayerWidget extends StatefulWidget {
+  final String messageId;
   final String? audioUrl;
 
-  const _VoicePlayerWidget({required this.audioUrl});
+  const _VoicePlayerWidget({
+    required this.messageId,
+    required this.audioUrl,
+  });
 
   @override
   State<_VoicePlayerWidget> createState() => _VoicePlayerWidgetState();
@@ -317,6 +325,10 @@ class _VoicePlayerWidget extends StatefulWidget {
 
 class _VoicePlayerWidgetState extends State<_VoicePlayerWidget> {
   final AudioPlayer _player = AudioPlayer();
+  StreamSubscription<PlayerState>? _stateSub;
+  StreamSubscription<Duration>? _durationSub;
+  StreamSubscription<Duration>? _positionSub;
+
   bool _isPlaying = false;
   Duration _duration = Duration.zero;
   Duration _position = Duration.zero;
@@ -324,19 +336,21 @@ class _VoicePlayerWidgetState extends State<_VoicePlayerWidget> {
   @override
   void initState() {
     super.initState();
-    _player.onPlayerStateChanged.listen((state) {
+    _player.setReleaseMode(ReleaseMode.stop);
+
+    _stateSub = _player.onPlayerStateChanged.listen((state) {
       if (mounted) {
         setState(() => _isPlaying = state == PlayerState.playing);
       }
     });
 
-    _player.onDurationChanged.listen((newDuration) {
+    _durationSub = _player.onDurationChanged.listen((newDuration) {
       if (mounted) {
         setState(() => _duration = newDuration);
       }
     });
 
-    _player.onPositionChanged.listen((newPosition) {
+    _positionSub = _player.onPositionChanged.listen((newPosition) {
       if (mounted) {
         setState(() => _position = newPosition);
       }
@@ -345,6 +359,9 @@ class _VoicePlayerWidgetState extends State<_VoicePlayerWidget> {
 
   @override
   void dispose() {
+    _stateSub?.cancel();
+    _durationSub?.cancel();
+    _positionSub?.cancel();
     _player.dispose();
     super.dispose();
   }
@@ -352,15 +369,23 @@ class _VoicePlayerWidgetState extends State<_VoicePlayerWidget> {
   Future<void> _togglePlay() async {
     if (widget.audioUrl == null) return;
 
+    final provider = context.read<ChatProvider>();
     if (_isPlaying) {
       await _player.pause();
+      provider.setActiveAudioMessage(null);
     } else {
+      provider.setActiveAudioMessage(widget.messageId);
       await _player.play(UrlSource(widget.audioUrl!));
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    // Si otro audio comenzó a reproducirse, pausar este inmediatamente
+    final activeAudio = context.watch<ChatProvider>().activeAudioMessageId;
+    if (activeAudio != widget.messageId && _isPlaying) {
+      _player.pause();
+    }
     final format = DateFormat('mm:ss');
     final posStr = format.format(DateTime.fromMillisecondsSinceEpoch(_position.inMilliseconds));
     final durStr = format.format(DateTime.fromMillisecondsSinceEpoch(_duration.inMilliseconds));

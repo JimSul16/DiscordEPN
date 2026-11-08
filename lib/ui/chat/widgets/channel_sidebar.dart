@@ -88,10 +88,7 @@ class ChannelSidebar extends StatelessWidget {
                   isSelected: isSelected,
                   onTap: () {
                     chatProvider.selectRoom(room);
-                    // Si estamos en móvil, cerramos el drawer si está abierto
-                    if (Navigator.of(context).canPop()) {
-                      Navigator.of(context).pop();
-                    }
+                    Scaffold.maybeOf(context)?.closeDrawer();
                   },
                 );
               },

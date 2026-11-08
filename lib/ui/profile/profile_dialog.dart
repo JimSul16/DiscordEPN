@@ -1,9 +1,11 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../core/constants/discord_colors.dart';
 import '../../core/providers/chat_provider.dart';
+import '../../core/services/storage_service.dart';
 
 class ProfileDialog extends StatefulWidget {
   const ProfileDialog({super.key});
@@ -17,6 +19,9 @@ class _ProfileDialogState extends State<ProfileDialog> {
   final _bioController = TextEditingController();
   bool _isSaving = false;
   final ImagePicker _picker = ImagePicker();
+
+  Uint8List? _pendingAvatar;
+  String? _pendingAvatarExt;
 
   @override
   void initState() {
@@ -35,7 +40,7 @@ class _ProfileDialogState extends State<ProfileDialog> {
     super.dispose();
   }
 
-  Future<void> _pickAndUploadAvatar() async {
+  Future<void> _pickAvatar() async {
     final XFile? image = await _picker.pickImage(
       source: ImageSource.gallery,
       maxWidth: 512,
@@ -45,61 +50,90 @@ class _ProfileDialogState extends State<ProfileDialog> {
 
     if (image == null) return;
 
-    setState(() => _isSaving = true);
-    try {
-      final bytes = await image.readAsBytes();
-      final ext = image.name.split('.').last.toLowerCase();
-
-      if (mounted) {
-        await context.read<ChatProvider>().updateProfile(
-          newAvatarBytes: bytes,
-          avatarExtension: ext.isNotEmpty ? ext : 'jpg',
-        );
-      }
-    } catch (e) {
+    final ext = image.name.split('.').last.toLowerCase();
+    if (!StorageService.imageMime.containsKey(ext)) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+          const SnackBar(
             backgroundColor: DiscordColors.red,
-            content: Text('Error al subir avatar: $e'),
+            content: Text('Formato no permitido. Usa JPG, PNG o WebP.'),
           ),
         );
       }
-    } finally {
-      if (mounted) {
-        setState(() => _isSaving = false);
-      }
+      return;
     }
+
+    final bytes = await image.readAsBytes();
+    if (bytes.lengthInBytes > StorageService.maxAvatarBytes) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: DiscordColors.red,
+            content: Text('El avatar no puede superar 5 MB.'),
+          ),
+        );
+      }
+      return;
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _pendingAvatar = bytes;
+      _pendingAvatarExt = ext;
+    });
   }
 
   Future<void> _saveProfile() async {
-    if (_nameController.text.trim().isEmpty) return;
+    final name = _nameController.text.trim();
+    final bio = _bioController.text.trim();
+
+    if (name.length < 3 || name.length > 32) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: DiscordColors.red,
+          content: Text('El nombre de usuario debe tener entre 3 y 32 caracteres.'),
+        ),
+      );
+      return;
+    }
+
+    if (bio.length > 190) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: DiscordColors.red,
+          content: Text('La biografía no puede superar los 190 caracteres.'),
+        ),
+      );
+      return;
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
 
     setState(() => _isSaving = true);
     try {
       await context.read<ChatProvider>().updateProfile(
-        displayName: _nameController.text.trim(),
-        bio: _bioController.text.trim(),
+        displayName: name,
+        bio: bio,
+        newAvatarBytes: _pendingAvatar,
+        avatarExtension: _pendingAvatarExt,
       );
 
-      if (mounted) {
-        Navigator.of(context).pop();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: DiscordColors.green,
-            content: Text('Perfil actualizado con éxito'),
-          ),
-        );
-      }
+      if (!mounted) return;
+      navigator.pop();
+      messenger.showSnackBar(
+        const SnackBar(
+          backgroundColor: DiscordColors.green,
+          content: Text('Perfil actualizado con éxito'),
+        ),
+      );
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: DiscordColors.red,
-            content: Text('Error al guardar perfil: $e'),
-          ),
-        );
-      }
+      messenger.showSnackBar(
+        SnackBar(
+          backgroundColor: DiscordColors.red,
+          content: Text('Error al guardar perfil: $e'),
+        ),
+      );
     } finally {
       if (mounted) {
         setState(() => _isSaving = false);
@@ -113,12 +147,21 @@ class _ProfileDialogState extends State<ProfileDialog> {
     final profile = chatProvider.currentUserProfile;
 
     return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
       backgroundColor: DiscordColors.channelSidebar,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 440),
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
+        constraints: BoxConstraints(
+          maxWidth: 440,
+          maxHeight: MediaQuery.sizeOf(context).height * 0.85,
+        ),
+        child: SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(
+            24,
+            24,
+            24,
+            24 + MediaQuery.viewInsetsOf(context).bottom,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -148,10 +191,12 @@ class _ProfileDialogState extends State<ProfileDialog> {
                     CircleAvatar(
                       radius: 46,
                       backgroundColor: DiscordColors.blurple,
-                      backgroundImage: profile?.avatarUrl != null
-                          ? CachedNetworkImageProvider(profile!.avatarUrl!)
-                          : null,
-                      child: profile?.avatarUrl == null
+                      backgroundImage: _pendingAvatar != null
+                          ? MemoryImage(_pendingAvatar!)
+                          : (profile?.avatarUrl != null
+                              ? CachedNetworkImageProvider(profile!.avatarUrl!) as ImageProvider
+                              : null),
+                      child: (_pendingAvatar == null && profile?.avatarUrl == null)
                           ? Text(
                               profile?.displayName.isNotEmpty == true
                                   ? profile!.displayName[0].toUpperCase()
@@ -173,7 +218,7 @@ class _ProfileDialogState extends State<ProfileDialog> {
                         elevation: 2,
                         child: InkWell(
                           customBorder: const CircleBorder(),
-                          onTap: _isSaving ? null : _pickAndUploadAvatar,
+                          onTap: _isSaving ? null : _pickAvatar,
                           child: const Padding(
                             padding: EdgeInsets.all(8.0),
                             child: Icon(
@@ -201,8 +246,10 @@ class _ProfileDialogState extends State<ProfileDialog> {
               const SizedBox(height: 6),
               TextField(
                 controller: _nameController,
+                maxLength: 32,
                 style: const TextStyle(color: DiscordColors.textPrimary),
                 decoration: InputDecoration(
+                  counterText: '',
                   filled: true,
                   fillColor: DiscordColors.serverSidebar,
                   border: OutlineInputBorder(
@@ -228,9 +275,11 @@ class _ProfileDialogState extends State<ProfileDialog> {
               const SizedBox(height: 6),
               TextField(
                 controller: _bioController,
+                maxLength: 190,
                 maxLines: 2,
                 style: const TextStyle(color: DiscordColors.textPrimary),
                 decoration: InputDecoration(
+                  counterText: '',
                   filled: true,
                   fillColor: DiscordColors.serverSidebar,
                   border: OutlineInputBorder(
