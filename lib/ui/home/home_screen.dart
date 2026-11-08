@@ -153,6 +153,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         body: Column(
           children: [
+            if (!chatProvider.hasValidAuthClaim) _buildClaimWarningBanner(chatProvider),
             if (chatProvider.error != null) _buildErrorBanner(chatProvider),
             Expanded(
               child: _buildChatBody(chatProvider),
@@ -227,6 +228,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                 ),
+                if (!chatProvider.hasValidAuthClaim) _buildClaimWarningBanner(chatProvider),
                 if (chatProvider.error != null) _buildErrorBanner(chatProvider),
                 // Feed de mensajes
                 Expanded(
@@ -277,6 +279,36 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildClaimWarningBanner(ChatProvider chatProvider) {
+    return Container(
+      width: double.infinity,
+      color: Colors.amber.shade900,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          const Icon(Icons.security, color: Colors.white, size: 20),
+          const SizedBox(width: 8),
+          const Expanded(
+            child: Text(
+              'Aviso de Seguridad: Tu token de Firebase no tiene el custom claim "role: authenticated". Para que las políticas RLS permitan acceso, configúralo en Firebase Console o Cloud Function.',
+              style: TextStyle(color: Colors.white, fontSize: 12),
+            ),
+          ),
+          const SizedBox(width: 8),
+          TextButton(
+            style: TextButton.styleFrom(
+              backgroundColor: Colors.white24,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            ),
+            onPressed: () => chatProvider.refreshAuthToken(),
+            child: const Text('Refrescar Token', style: TextStyle(fontSize: 11)),
+          ),
+        ],
+      ),
     );
   }
 

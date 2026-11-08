@@ -1,8 +1,10 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:discord_epn/core/constants/discord_colors.dart';
 import 'package:discord_epn/core/config/app_config.dart';
 import 'package:discord_epn/core/errors/app_exception.dart';
+import 'package:discord_epn/core/providers/chat_provider.dart';
 import 'package:discord_epn/core/services/storage_service.dart';
 import 'package:discord_epn/models/user_profile.dart';
 import 'package:discord_epn/models/room_model.dart';
@@ -171,12 +173,71 @@ void main() {
     });
   });
 
-  group('StorageService Hardening', () {
-    test('Saneamiento de nombres de archivo y tipos MIME permitidos', () {
+  group('ChatProvider Local State Tests', () {
+    test('Gestión de audio único y estado de autorización', () {
+      final provider = ChatProvider();
+      expect(provider.activeAudioMessageId, isNull);
+      expect(provider.hasValidAuthClaim, isTrue);
+
+      provider.setActiveAudioMessage('audio-msg-456');
+      expect(provider.activeAudioMessageId, equals('audio-msg-456'));
+
+      provider.setActiveAudioMessage(null);
+      expect(provider.activeAudioMessageId, isNull);
+
+      provider.clearError();
+      expect(provider.error, isNull);
+    });
+  });
+
+  group('StorageService Hardening & Strict MIME', () {
+    test('Allowlists de MIME para imágenes y audios', () {
       expect(StorageService.imageMime['png'], equals('image/png'));
       expect(StorageService.imageMime['jpg'], equals('image/jpeg'));
+      expect(StorageService.imageMime['webp'], equals('image/webp'));
+      expect(StorageService.imageMime['gif'], equals('image/gif'));
+      expect(StorageService.imageMime['exe'], isNull);
+
       expect(StorageService.audioMime['m4a'], equals('audio/mp4'));
       expect(StorageService.audioMime['wav'], equals('audio/wav'));
+      expect(StorageService.audioMime['aac'], equals('audio/aac'));
+    });
+
+    test('uploadChatMedia rechaza archivos no autorizados', () {
+      expect(
+        () => StorageService.uploadChatMedia(
+          roomId: 'room-1',
+          fileName: 'trojan.exe',
+          bytes: Uint8List(100),
+          mimeType: 'application/x-msdownload',
+        ),
+        throwsA(isA<AppException>()),
+      );
+    });
+
+    test('uploadVoiceNote rechaza discordancia de formato y MIME', () {
+      expect(
+        () => StorageService.uploadVoiceNote(
+          roomId: 'room-1',
+          audioBytes: Uint8List(100),
+          extension: 'm4a',
+          mimeType: 'audio/wav',
+        ),
+        throwsA(isA<AppException>()),
+      );
+    });
+
+    test('Validación de tamaño máximo arroja AppException', () {
+      final oversizedBytes = Uint8List(11 * 1024 * 1024);
+      expect(
+        () => StorageService.uploadChatMedia(
+          roomId: 'room-1',
+          fileName: 'grande.png',
+          bytes: oversizedBytes,
+          mimeType: 'image/png',
+        ),
+        throwsA(isA<AppException>()),
+      );
     });
   });
 }

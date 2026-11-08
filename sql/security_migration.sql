@@ -3,6 +3,8 @@
 -- Generado a partir de AUDITORIA_BUGS_SEGURIDAD.md
 -- ==============================================================================
 
+begin;
+
 -- ==============================================================================
 -- 1. DIAGNÓSTICO Y LIMPIEZA PREVIA
 -- ==============================================================================
@@ -188,6 +190,8 @@ create index if not exists reactions_user_idx
   on public.message_reactions (user_id);
 create index if not exists reactions_room_idx
   on public.message_reactions (room_id);
+create unique index if not exists message_reactions_msg_usr_react_uidx
+  on public.message_reactions (message_id, user_id, reaction);
 create index if not exists reads_user_idx
   on public.message_reads (user_id);
 create index if not exists reads_room_idx
@@ -740,3 +744,5 @@ begin
 end $$;
 
 alter table public.messages replica identity full;
+
+commit;

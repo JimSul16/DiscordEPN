@@ -104,7 +104,11 @@ class _ChatInputBarState extends State<ChatInputBar> {
 
       final name = image.name;
       final ext = name.split('.').last.toLowerCase();
-      final mime = StorageService.imageMime[ext] ?? 'image/jpeg';
+      final normalized = ext == 'jpeg' ? 'jpg' : ext;
+      final mime = StorageService.imageMime[normalized];
+      if (mime == null) {
+        throw Exception('Formato no permitido: .$ext. Solo se aceptan JPG, PNG, WebP o GIF.');
+      }
 
       if (mounted) {
         await context.read<ChatProvider>().sendImageMessage(

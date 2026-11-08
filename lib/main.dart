@@ -40,7 +40,10 @@ Future<void> main() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
 
-    // 3. Inicializar Notificaciones Push (FCM)
+    // 3. Inicializar Supabase con Auth bridge (PRIMERO para que el cliente esté listo)
+    await SupabaseService.initialize();
+
+    // 4. Inicializar Notificaciones Push (FCM) DESPUÉS de inicializar Supabase
     try {
       final messaging = FirebaseMessaging.instance;
       await messaging.requestPermission(
@@ -48,6 +51,7 @@ Future<void> main() async {
         badge: true,
         sound: true,
       );
+
       // ignore: deprecated_member_use
       final fcmToken = await messaging.getToken();
       if (fcmToken != null) {
@@ -63,10 +67,25 @@ Future<void> main() async {
           );
         }
       }
-    } catch (_) {}
 
-    // 4. Inicializar Supabase con Auth bridge
-    await SupabaseService.initialize();
+      // Escuchar renovación de tokens de FCM
+      // ignore: deprecated_member_use
+      FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
+        final currentUid = FirebaseAuth.instance.currentUser?.uid;
+        if (currentUid != null) {
+          final platform = kIsWeb
+              ? 'web'
+              : (defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android');
+          await SupabaseService.upsertPushToken(
+            userId: currentUid,
+            token: newToken,
+            platform: platform,
+          );
+        }
+      });
+    } catch (e) {
+      debugPrint('Aviso FCM: $e');
+    }
 
     runApp(
       MultiProvider(

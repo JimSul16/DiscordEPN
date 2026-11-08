@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../models/room_model.dart';
 import '../../models/message_model.dart';
 import '../../models/user_profile.dart';
+import '../config/app_config.dart';
 import '../errors/app_exception.dart';
 import '../services/auth_service.dart';
 import '../services/supabase_service.dart';
@@ -40,6 +41,9 @@ class ChatProvider extends ChangeNotifier {
   // Heartbeat de presencia (BUG-05)
   Timer? _presenceHeartbeat;
 
+  // Estado del custom claim de autenticación en Supabase
+  bool _hasValidAuthClaim = true;
+
   UserProfile? get currentUserProfile => _currentUserProfile;
   List<RoomModel> get rooms => _rooms;
   RoomModel? get activeRoom => _activeRoom;
@@ -51,6 +55,19 @@ class ChatProvider extends ChangeNotifier {
   bool get hasMore => _hasMore;
   bool get loadingMore => _loadingMore;
   String? get activeAudioMessageId => _activeAudioMessageId;
+  bool get hasValidAuthClaim => _hasValidAuthClaim;
+
+  Future<void> refreshAuthToken() async {
+    final user = AuthService.currentUser;
+    if (user != null) {
+      final token = await user.getIdToken(true);
+      if (token != null) {
+        await SupabaseService.client.realtime.setAuth(token);
+        _hasValidAuthClaim = AppConfig.hasAuthenticatedRole(token);
+        notifyListeners();
+      }
+    }
+  }
 
   void setActiveAudioMessage(String? messageId) {
     if (_activeAudioMessageId != messageId) {
@@ -70,6 +87,20 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final user = AuthService.currentUser;
+      if (user != null) {
+        var token = await user.getIdToken();
+        if (token != null) {
+          _hasValidAuthClaim = AppConfig.hasAuthenticatedRole(token);
+          if (!_hasValidAuthClaim) {
+            token = await user.getIdToken(true);
+            if (token != null) {
+              _hasValidAuthClaim = AppConfig.hasAuthenticatedRole(token);
+            }
+          }
+        }
+      }
+
       _currentUserProfile = await SupabaseService.getProfile(userId);
       if (_currentUserProfile == null) {
         // Fallback resiliente si el perfil aún no se registró en Supabase

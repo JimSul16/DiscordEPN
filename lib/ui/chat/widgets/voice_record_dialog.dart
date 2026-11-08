@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:record/record.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:http/http.dart' as http;
 import '../../../core/constants/discord_colors.dart';
 import '../../../core/services/storage_service.dart';
 
@@ -19,11 +22,10 @@ class VoiceRecordDialog extends StatefulWidget {
 
 class _VoiceRecordDialogState extends State<VoiceRecordDialog> {
   final AudioRecorder _recorder = AudioRecorder();
-  final List<int> _audioChunks = [];
-  StreamSubscription<Uint8List>? _streamSub;
   Timer? _timer;
   int _seconds = 0;
   bool _isRecording = false;
+  String? _recordedFilePath;
 
   static const int maxDurationSeconds = 60;
 
@@ -50,24 +52,33 @@ class _VoiceRecordDialogState extends State<VoiceRecordDialog> {
     }
 
     try {
-      // Usar aacLc en móvil y wav/pcm en web según compatibilidad
-      final encoder = kIsWeb ? AudioEncoder.pcm16bits : AudioEncoder.aacLc;
-      final stream = await _recorder.startStream(
-        RecordConfig(
-          encoder: encoder,
-          bitRate: 64000,
-          sampleRate: 44100,
-          numChannels: 1,
-        ),
-      );
+      if (kIsWeb) {
+        // En Web: grabar con codificador WAV para generar cabecera RIFF válida
+        final webPath = 'voice_${DateTime.now().millisecondsSinceEpoch}.wav';
+        await _recorder.start(
+          const RecordConfig(
+            encoder: AudioEncoder.wav,
+            sampleRate: 16000,
+            numChannels: 1,
+          ),
+          path: webPath,
+        );
+      } else {
+        // En Móvil/Desktop: grabar en archivo con contenedor MP4/M4A y codec AAC-LC
+        final tempDir = await getTemporaryDirectory();
+        final path = '${tempDir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+        _recordedFilePath = path;
 
-      _streamSub = stream.listen((chunk) {
-        if (_audioChunks.length + chunk.length > StorageService.maxAudioBytes) {
-          _finishAndSend();
-          return;
-        }
-        _audioChunks.addAll(chunk);
-      });
+        await _recorder.start(
+          const RecordConfig(
+            encoder: AudioEncoder.aacLc,
+            bitRate: 64000,
+            sampleRate: 44100,
+            numChannels: 1,
+          ),
+          path: path,
+        );
+      }
 
       setState(() => _isRecording = true);
 
@@ -98,25 +109,67 @@ class _VoiceRecordDialogState extends State<VoiceRecordDialog> {
     if (!_isRecording) return;
     _isRecording = false;
     _timer?.cancel();
-    await _recorder.stop();
-    await _streamSub?.cancel();
 
-    if (_audioChunks.isNotEmpty && mounted) {
-      final bytes = Uint8List.fromList(_audioChunks);
-      final ext = kIsWeb ? 'wav' : 'm4a';
-      final mime = kIsWeb ? 'audio/wav' : 'audio/mp4';
-      widget.onSendAudio(bytes, extension: ext, mimeType: mime);
-      Navigator.of(context).pop();
-    } else if (mounted) {
-      Navigator.of(context).pop();
+    try {
+      final savedPath = await _recorder.stop();
+
+      if (kIsWeb) {
+        if (savedPath != null) {
+          final res = await http.get(Uri.parse(savedPath));
+          final bytes = res.bodyBytes;
+          if (bytes.lengthInBytes > StorageService.maxAudioBytes) {
+            throw Exception('El audio supera el límite de 10 MB.');
+          }
+          if (mounted && bytes.isNotEmpty) {
+            widget.onSendAudio(bytes, extension: 'wav', mimeType: 'audio/wav');
+            Navigator.of(context).pop();
+          }
+        }
+      } else {
+        final path = savedPath ?? _recordedFilePath;
+        if (path != null) {
+          final file = File(path);
+          if (await file.exists()) {
+            final bytes = await file.readAsBytes();
+            if (bytes.lengthInBytes > StorageService.maxAudioBytes) {
+              throw Exception('El audio supera el límite de 10 MB.');
+            }
+            if (mounted && bytes.isNotEmpty) {
+              widget.onSendAudio(bytes, extension: 'm4a', mimeType: 'audio/mp4');
+              Navigator.of(context).pop();
+            }
+            try {
+              await file.delete();
+            } catch (_) {}
+          }
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: DiscordColors.red,
+            content: Text('Error al procesar audio: $e'),
+          ),
+        );
+      }
     }
   }
 
   Future<void> _cancelRecording() async {
     _isRecording = false;
     _timer?.cancel();
-    await _recorder.cancel();
-    await _streamSub?.cancel();
+    try {
+      final path = await _recorder.stop();
+      if (!kIsWeb && path != null) {
+        final file = File(path);
+        if (await file.exists()) {
+          await file.delete();
+        }
+      }
+    } catch (_) {}
+
     if (mounted) {
       Navigator.of(context).pop();
     }
@@ -125,7 +178,6 @@ class _VoiceRecordDialogState extends State<VoiceRecordDialog> {
   @override
   void dispose() {
     _timer?.cancel();
-    _streamSub?.cancel();
     _recorder.dispose();
     super.dispose();
   }
@@ -160,7 +212,7 @@ class _VoiceRecordDialogState extends State<VoiceRecordDialog> {
             ),
             const SizedBox(height: 18),
             Text(
-              _isRecording ? 'Grabando mensaje de voz...' : 'Iniciando grabadora...',
+              _isRecording ? 'Grabando nota de voz...' : 'Iniciando grabadora...',
               style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
@@ -199,7 +251,7 @@ class _VoiceRecordDialogState extends State<VoiceRecordDialog> {
                   ),
                   icon: const Icon(Icons.send, size: 18),
                   label: const Text('Enviar'),
-                  onPressed: _audioChunks.isEmpty ? null : _finishAndSend,
+                  onPressed: !_isRecording ? null : _finishAndSend,
                 ),
               ],
             ),

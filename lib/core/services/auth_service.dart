@@ -1,4 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import '../config/app_config.dart';
 import '../errors/app_exception.dart';
 import '../../models/user_profile.dart';
 import 'supabase_service.dart';
@@ -28,8 +31,13 @@ class AuthService {
         final token = await user.getIdToken(true);
         if (token != null) {
           await SupabaseService.client.realtime.setAuth(token);
+          if (!AppConfig.hasAuthenticatedRole(token)) {
+            debugPrint('Aviso: El token de Firebase aún no contiene el claim "role: authenticated".');
+          }
         }
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('Aviso al refrescar token: $e');
+      }
 
       // Sincronizar perfil inicial en Supabase
       final profile = UserProfile(
@@ -48,6 +56,9 @@ class AuthService {
           e,
         );
       }
+
+      // Guardar token de FCM inmediatamente tras el registro exitoso
+      await syncFcmToken(user.uid);
     }
 
     return credential;
@@ -69,7 +80,9 @@ class AuthService {
         if (token != null) {
           await SupabaseService.client.realtime.setAuth(token);
         }
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('Aviso realtime auth: $e');
+      }
 
       try {
         await SupabaseService.updatePresence(user.uid, true);
@@ -89,9 +102,31 @@ class AuthService {
           await SupabaseService.upsertProfile(fallbackProfile);
         }
       } catch (_) {}
+
+      // Guardar token de FCM inmediatamente tras el login exitoso
+      await syncFcmToken(user.uid);
     }
 
     return credential;
+  }
+
+  static Future<void> syncFcmToken(String userId) async {
+    try {
+      // ignore: deprecated_member_use
+      final fcmToken = await FirebaseMessaging.instance.getToken();
+      if (fcmToken != null) {
+        final platform = kIsWeb
+            ? 'web'
+            : (defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android');
+        await SupabaseService.upsertPushToken(
+          userId: userId,
+          token: fcmToken,
+          platform: platform,
+        );
+      }
+    } catch (e) {
+      debugPrint('Aviso syncFcmToken: $e');
+    }
   }
 
   static Future<void> signOut() async {

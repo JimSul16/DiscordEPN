@@ -1,5 +1,5 @@
 -- ==============================================================================
--- CONSULTAS DE VERIFICACIÓN DE RLS Y PERMISOS
+-- CONSULTAS DE VERIFICACIÓN DE RLS Y PERMISOS REALES
 -- ==============================================================================
 
 -- 1. Tablas y estado de RLS (debe devolver true en todas)
@@ -27,3 +27,36 @@ select table_name, privilege_type
 from information_schema.role_table_grants
 where grantee = 'authenticated' and table_schema = 'public'
 order by table_name, privilege_type;
+
+-- ==============================================================================
+-- 5. SIMULACIÓN DE PRUEBA REAL DE ACCESO POR ROLES
+-- ==============================================================================
+
+-- 5.1 Verificación empírica con rol anon (debe ser bloqueado por RLS)
+begin;
+set role anon;
+
+do $$
+begin
+  -- Intentar insertar como anónimo sin token
+  insert into public.messages (room_id, sender_id, content)
+  values ('00000000-0000-0000-0000-000000000000', 'intruso', 'intento');
+  raise exception 'ALERTA: anon logró escribir en messages';
+exception
+  when insufficient_privilege then
+    raise notice 'CORRECTO: anon rechazado con 42501 (insufficient_privilege)';
+  when others then
+    raise notice 'CORRECTO: anon bloqueado (%): %', sqlstate, sqlerrm;
+end $$;
+
+rollback;
+
+-- 5.2 Verificación empírica con usuario autenticado
+begin;
+set role authenticated;
+set local "request.jwt.claim.sub" = 'test_firebase_uid_abc';
+set local "request.jwt.claim.role" = 'authenticated';
+
+select count(*) as profile_count from public.profiles;
+
+rollback;

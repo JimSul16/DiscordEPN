@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/app_config.dart';
@@ -28,7 +29,9 @@ class SupabaseService {
       try {
         final token = await user?.getIdToken();
         await Supabase.instance.client.realtime.setAuth(token);
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('Aviso realtime.setAuth: $e');
+      }
     });
   }
 
@@ -267,7 +270,7 @@ class SupabaseService {
     }
   }
 
-  // --- Suscripción en Tiempo Real para Mensajes con filtros ---
+  // --- Suscripción en Tiempo Real para Mensajes con filtros estrictos por sala (BUG-16) ---
   static RealtimeChannel subscribeToRoomMessages({
     required String roomId,
     required void Function() onDataChanged,
@@ -290,12 +293,22 @@ class SupabaseService {
           event: PostgresChangeEvent.all,
           schema: 'public',
           table: 'message_reactions',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'room_id',
+            value: roomId,
+          ),
           callback: (_) => onDataChanged(),
         )
         .onPostgresChanges(
           event: PostgresChangeEvent.all,
           schema: 'public',
           table: 'message_reads',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'room_id',
+            value: roomId,
+          ),
           callback: (_) => onDataChanged(),
         )
         .subscribe();
@@ -375,7 +388,7 @@ class SupabaseService {
     } catch (_) {}
   }
 
-  // --- Push Tokens ---
+  // --- Push Tokens (FCM) ---
   static Future<void> upsertPushToken({
     required String userId,
     required String token,
@@ -391,7 +404,9 @@ class SupabaseService {
         },
         onConflict: 'user_id,token',
       );
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Aviso al guardar push token: $e');
+    }
   }
 
   // --- Indicador de "Escribiendo..." (Typing Indicator) ---

@@ -32,11 +32,11 @@ class StorageService {
 
   static void _checkSize(Uint8List bytes, int max, String label) {
     if (bytes.lengthInBytes > max) {
-      throw AppException('$label supera el límite de ${max ~/ (1024 * 1024)} MB.');
+      throw AppException('$label supera el límite permitido de ${max ~/ (1024 * 1024)} MB.');
     }
   }
 
-  // Subir avatar de usuario
+  // Subir avatar de usuario (validación estricta de MIME y tamaño)
   static Future<String> uploadAvatar({
     required String userId,
     required Uint8List bytes,
@@ -46,7 +46,7 @@ class StorageService {
     final normalized = ext == 'jpeg' ? 'jpg' : ext;
     final mime = imageMime[normalized];
     if (mime == null) {
-      throw const AppException('Formato de imagen para avatar no permitido. Usa JPG, PNG o WebP.');
+      throw const AppException('Formato de avatar no permitido. Solo se aceptan JPG, PNG o WebP.');
     }
     _checkSize(bytes, maxAvatarBytes, 'El avatar');
 
@@ -59,7 +59,7 @@ class StorageService {
     return await snapshot.ref.getDownloadURL();
   }
 
-  // Subir archivo multimedia al chat
+  // Subir archivo multimedia al chat (validación estricta contra allowlist de imágenes)
   static Future<String> uploadChatMedia({
     required String roomId,
     required String fileName,
@@ -67,33 +67,48 @@ class StorageService {
     required String mimeType,
   }) async {
     _checkSize(bytes, maxImageBytes, 'El archivo adjunto');
+    final ext = fileName.split('.').last.toLowerCase();
+    final normalizedExt = ext == 'jpeg' ? 'jpg' : ext;
+    final expectedMime = imageMime[normalizedExt];
+
+    if (expectedMime == null || expectedMime != mimeType) {
+      throw AppException(
+        'Tipo de archivo o extensión no permitida: "$fileName" ($mimeType). Solo se admiten JPG, PNG, WebP o GIF.',
+      );
+    }
+
     final safe = _safeName(fileName);
     final id = '${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(1 << 30)}';
     final ref = _storage.ref().child('chat_media/$roomId/${id}_$safe');
     final uploadTask = ref.putData(
       bytes,
-      SettableMetadata(contentType: mimeType),
+      SettableMetadata(contentType: expectedMime),
     );
     final snapshot = await uploadTask;
     return await snapshot.ref.getDownloadURL();
   }
 
-  // Subir nota de voz / audio
+  // Subir nota de voz / audio (validación estricta de par extensión y MIME)
   static Future<String> uploadVoiceNote({
     required String roomId,
     required Uint8List audioBytes,
-    String extension = 'm4a',
-    String mimeType = 'audio/mp4',
+    required String extension,
+    required String mimeType,
   }) async {
     final ext = extension.toLowerCase();
-    final effectiveMime = audioMime[ext] ?? mimeType;
+    final expectedMime = audioMime[ext];
+    if (expectedMime == null || expectedMime != mimeType) {
+      throw AppException(
+        'Formato de audio no permitido: extensión .$ext con MIME $mimeType.',
+      );
+    }
     _checkSize(audioBytes, maxAudioBytes, 'La nota de voz');
 
     final id = '${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(1 << 30)}';
     final ref = _storage.ref().child('voice_notes/$roomId/$id.$ext');
     final uploadTask = ref.putData(
       audioBytes,
-      SettableMetadata(contentType: effectiveMime),
+      SettableMetadata(contentType: expectedMime),
     );
     final snapshot = await uploadTask;
     return await snapshot.ref.getDownloadURL();
