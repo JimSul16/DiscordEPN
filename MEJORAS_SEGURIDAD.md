@@ -207,3 +207,26 @@ Se añadieron y ejecutaron suites de pruebas automatizadas:
    - Ejecutar `firebase deploy --only hosting,storage` para publicar las reglas de almacenamiento y las cabeceras CSP.
 5. **Generación de Keystore Android:**
    - Crear el archivo `android/key.properties` con la ruta y contraseñas de la llave de firma privada para generar el bundle de producción (`flutter build appbundle --release`).
+
+### Lo que Falta (Acciones Fuera del Código / Consolas)
+
+  Para completar el despliegue al 100%, solo restan los pasos
+  administrativos en las consolas de servicios externos:
+
+  1. Supabase SQL Editor:
+      • Ejecutar security_migration.sql (ahora envuelto en BEGIN ...
+      COMMIT).
+      • Ejecutar verify_rls.sql para comprobar las políticas con SET ROLE
+      anon y SET ROLE authenticated.
+  2. Supabase Auth Configuration:
+      • En Authentication > Providers > Third-Party Auth, activar el
+      proveedor de Firebase con tu Project ID.
+  3. Firebase Auth Custom Claims:
+      • Desplegar el trigger en Firebase Functions para asignar { role:
+      'authenticated' } a los usuarios registrados.
+  4. Firebase Deploy:
+      • Ejecutar firebase deploy --only hosting,storage para aplicar las
+      storage.rules y las cabeceras CSP de firebase.json.
+  5. Generar Keystore de Producción (Android):
+      • Crear el archivo android/key.properties con las credenciales de
+      tu keystore para firmar el bundle de release.
